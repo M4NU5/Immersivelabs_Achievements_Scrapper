@@ -1,3 +1,8 @@
+!README.md
+**.md
+*.html
+**Achievements**
+/thumbnails
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
