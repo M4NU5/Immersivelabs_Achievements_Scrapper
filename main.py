@@ -1,4 +1,7 @@
 import re
+import os
+import sys
+import urllib.request as get_image
 from datetime import date
 from random import randrange
 from time import sleep
@@ -14,6 +17,14 @@ class achievements_bot():
     #   options.add_argument('--headless')
       self.driver = webdriver.Chrome(options=options)
 
+    def __save_image(self, badge_title, image_url):
+        try:
+            image_path = os.path.join(f'./badge_images/', f'{badge_title}.png')
+            get_image.urlretrieve(image_url, image_path)
+            return image_path
+        except BaseException as e:
+            print(e)
+
     def __get_achievement_page(self, url):
         """ Get achievement page and extract specified elements"""
         try:
@@ -25,16 +36,19 @@ class achievements_bot():
 
             # Locate & extract title
             title_element = self.driver.find_element(By.CSS_SELECTOR, "h1")
-            title = title_element.text
-
+            title = self.__sanitise_badge_title(title_element.text)
 
             # Locate & extract image url
             image_element = self.driver.find_element(By.XPATH, "//img[@data-qaid='image-badge']")
             img_src = image_element.get_attribute("src")
+            image_path = self.__save_image(title, img_src)
             # urllib.request.urlretrieve(image_element.get_attribute("src"), f"badges/{title}.png")
-
+            # input(f"{'title': title, 'share_url': share_url, 'img_path': image_path }")
+        except KeyboardInterrupt as STOP:
+            sys.exit(0)
         except:
             print(f"ERROR ==== {url} or {share_url}")
+            print(f"{'title': title, 'share_url': share_url, 'img_path': image_path }")
             try:
                 # Clean & return url
                 share_url = url.replace("gfk.", "")
@@ -44,18 +58,19 @@ class achievements_bot():
 
                 # Locate & extract title
                 title_element = self.driver.find_element(By.CSS_SELECTOR, "h1")
-                title = title_element.text
-
+                title = self.__sanitise_badge_title(title_element.text)
 
                 # Locate & extract image url
                 image_element = self.driver.find_element(By.XPATH, "//img[@data-qaid='image-badge']")
                 img_src = image_element.get_attribute("src")
+                image_path = self.__save_image(title, img_src)
                 # urllib.request.urlretrieve(image_element.get_attribute("src"), f"badges/{title}.png")
                 # raise Exception(f"Problem with fetching achievement {share_url}")
             except:
                 print(f"FATAL ERROR ==== {url} or {share_url}")
+                print(f"{'title': title, 'share_url': share_url, 'img_path': image_path }")
                 return None
-        Formatter = {'title': title, 'share_url': share_url, 'img_url': img_src }
+        Formatter = {'title': title, 'share_url': share_url, 'img_path': image_path }
         # print(Formatter)
         return Formatter
 
@@ -66,6 +81,12 @@ class achievements_bot():
         # Replace matches with an empty string
         cleaned_text = re.sub(pattern, '', text)
         return cleaned_text.strip()
+    
+    def __sanitise_badge_title(self, title):
+        approved_characters = "abcdefghijklmnopqrstuvwxyz_- "
+        sanatised_title = ''.join(filter(lambda char: char in approved_characters, str.lower(title)))
+        sanatised_title = sanatised_title.replace(" ", "_")
+        return sanatised_title
 
     def fetch_career_elements(self, soup):
         # get the careers section
@@ -76,7 +97,6 @@ class achievements_bot():
             result = self.__get_achievement_page(element.get("href"))
             if result is not None:
                 careers_arr.append(result)
-            # break
         # print(career_elements)
         return careers_arr # [{share_url, img_url, title}]
     
@@ -184,7 +204,7 @@ This page is generated from a custom script I wrote. The script scrapes my immer
     with open(f"output.md", "w") as file:
         file.write(f""" {PAGE_STYLE} \n <ul id="program_list"> \n       <li id="program_item"> """)
         for element in career_elements:
-            widget = f""" {{{{< badge url="{element.get('img_url')}" link="{element['share_url']}" alt="{element['title']}" height="240" >}}}} """
+            widget = f""" {{{{< badge url="{element.get('img_path')}" link="{element['share_url']}" alt="{element['title']}" height="240" >}}}} """
             file.write('\n')
             file.write(widget)
         
@@ -200,7 +220,7 @@ This page is generated from a custom script I wrote. The script scrapes my immer
                 file.write(f'\n <li id="program_item"> \n')
                 file.write(f'\n ### {key} \n')
                 for element in badge_elements[key]:
-                    widget = f""" {{{{< badge url="{element['img_url']}" link="{element['share_url']}" alt="{element['title']}" height="180" >}}}} """
+                    widget = f""" {{{{< badge url="{element['img_path']}" link="{element['share_url']}" alt="{element['title']}" height="180" >}}}} """
                     file.write('\n')
                     file.write(widget)
                 file.write(f' \n </li>')
