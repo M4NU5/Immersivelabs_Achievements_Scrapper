@@ -1,107 +1,105 @@
 import re
+import os 
+import shutil
 from datetime import date
 from random import randrange
 from time import sleep
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from bs4 import BeautifulSoup 
+from PIL import Image
+import unicodedata
 
 
+def sanitize_filename(value):
+    # Normalize the string to remove any accents or special characters
+    value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore').decode('ascii')
+    # Replace spaces with underscores and remove any non-alphanumeric characters
+    value = ''.join(e for e in value if e.isalnum() or e == ' ').replace(' ', '_')
+    return value
 
-class achievements_bot():
-    def __init__(self):
-      options = webdriver.ChromeOptions()
-    #   options.add_argument('--headless')
-      self.driver = webdriver.Chrome(options=options)
-
-    def __get_achievement_page(self, url):
-        """ Get achievement page and extract specified elements"""
-        try:
-            # Sanitise & return url
-            share_url = url.replace("gfk.", "api.")
-            share_url = share_url.replace("achievement", "achievements")
-            self.driver.get(share_url)
-            sleep(randrange(6,7))
-
-            # Locate & extract title
-            title_element = self.driver.find_element(By.CSS_SELECTOR, "h1")
-            title = title_element.text
-
-
-            # Locate & extract image url
-            image_element = self.driver.find_element(By.XPATH, "//img[@data-qaid='image-badge']")
-            img_src = image_element.get_attribute("src")
-            # urllib.request.urlretrieve(image_element.get_attribute("src"), f"badges/{title}.png")
-
-        except:
-            print(f"ERROR ==== {url} or {share_url}")
-            try:
-                # Clean & return url
-                share_url = url.replace("gfk.", "")
-                # share_url = share_url.replace("achievement", "achievements")
-                self.driver.get(share_url)
-                sleep(randrange(5,7))
-
-                # Locate & extract title
-                title_element = self.driver.find_element(By.CSS_SELECTOR, "h1")
-                title = title_element.text
-
-
-                # Locate & extract image url
-                image_element = self.driver.find_element(By.XPATH, "//img[@data-qaid='image-badge']")
-                img_src = image_element.get_attribute("src")
-                # urllib.request.urlretrieve(image_element.get_attribute("src"), f"badges/{title}.png")
-                # raise Exception(f"Problem with fetching achievement {share_url}")
-            except:
-                print(f"FATAL ERROR ==== {url} or {share_url}")
-                return None
-        Formatter = {'title': title, 'share_url': share_url, 'img_url': img_src }
-        # print(Formatter)
-        return Formatter
-
-    def __sanitise_section_title(self, text):
-         # Regular expression pattern to match numbers and parentheses
-        pattern = r'\d+|\(|\)'
+def fetch_career_elements(soup, dest_dir):
+    if not os.path.exists(dest_dir):
+        os.makedirs(dest_dir)
+    # get the careers section
+    soup = soup.find("div", {"class" ,"AchievementRolesCardsStyled-sc-1yyq2fl-0 kjysNg"})
+    career_cards = soup.find_all("li")
+    achievements = []
+    for card in career_cards:
+        title = card.find('h3').text
+        url = card.find('a')['href']
+        img_src = card.find('img')['src']
         
-        # Replace matches with an empty string
-        cleaned_text = re.sub(pattern, '', text)
-        return cleaned_text.strip()
+        # Construct the destination path using the title (ensure it's safe for filenames)
+        safe_title = sanitize_filename(title)
+        dest_image = os.path.join(dest_dir, f"{safe_title}.webp")  # Convert to WebP
 
-    def fetch_career_elements(self, soup):
-        # get the careers section
-        soup = soup.find("section", {"class" ,"AchievementRolesSectionStyled-sc-1di1trd-1 eJxUgL"})
-        career_elements = soup.find_all("a", {"class", "sc-hTZhsR fRUjTg"})
-        careers_arr = []
-        for element in career_elements:
-            result = self.__get_achievement_page(element.get("href"))
-            if result is not None:
-                careers_arr.append(result)
-            # break
-        # print(career_elements)
-        return careers_arr # [{share_url, img_url, title}]
-    
-    def fetch_badge_elements(self, soup):
-        # Get the badge sections
-        soup = soup.find_all("li", {"class" ,"AchievementsSeriesCategoryStyled-tzope2-0 VlhzS"})
-        badge_sections_arr = {}
-        for section in soup:
-            section_title = self.__sanitise_section_title(section.find("h3").text)
-            badge_elements = section.find_all("a", {"class", "sc-hTZhsR fRUjTg"})
-            badge_section = []
-            for element in badge_elements:
-                result = self.__get_achievement_page(element.get("href"))
-                if result is not None:
-                    badge_section.append(result)
-                # break
-            badge_sections_arr[section_title] = badge_section
-            # break
-        return badge_sections_arr
-        # career_elements = soup.find_all("a", {"class", "sc-hTZhsR fRUjTg"})
-        # careers_arr = []
-        # for element in career_elements:
-        #     careers_arr.append(self.__get_achievement_page(element.get("href")))
-        #     break
-        # return badge_elements # {Section_title: [{share_url, img_url, title}]}
+        # Convert the PNG image to WebP and move it
+        try:
+            with Image.open(img_src) as img:
+                # Convert and save the image in WebP format
+                img.save(dest_image, 'webp')
+                print(f"Converted and moved: {img_src} -> {dest_image}")
+        except FileNotFoundError:
+            print(f"Image file not found: {img_src}")
+        except Exception as e:
+            print(f"Error processing file {img_src}: {str(e)}")
+        achievement_data = {
+            'title': title,
+            'url': url,
+            'image_src': dest_image.replace('\\', '/')
+        }
+        achievements.append(achievement_data)
+    return achievements
+
+def fetch_badge_elements(soup, dest_dir):
+    if not os.path.exists(dest_dir):
+        os.makedirs(dest_dir)
+    # Get the badge sections
+    sections = soup.find_all("li", {"class": "AchievementsSeriesCategoryStyled-tzope2-0 VlhzS"})
+    # Initialize the dictionary to store achievements
+    achievements = {}
+    # Loop through each section
+    for section in sections:
+        # Get the section title (inside <h3>)
+        section_title = section.find('h3').text.split('(')[0].strip()
+        # Initialize a list to store the achievements for this section
+        achievements[section_title] = []
+        # Find all achievement cards within the section
+        cards = section.find_all('div', {'role': 'listitem'})
+        # Loop through each card
+        for card in cards:
+            # Extract the title (inside <h4>)
+            title = card.find('h4').text
+            # Extract the URL (inside <a>)
+            url = card.find('a')['href']
+            # Extract the image source (inside <img>)
+            img_src = card.find('img')['src']
+            # Store the extracted data in a dictionary
+                
+            # Construct the destination path using the title (ensure it's safe for filenames)
+            safe_title = sanitize_filename(title)
+            dest_image = os.path.join(dest_dir, f"{safe_title}.webp")  # Convert to WebP
+            
+            # Convert the PNG image to WebP and move it
+            try:
+                with Image.open(img_src) as img:
+                    # Convert and save the image in WebP format
+                    img.save(dest_image, 'webp')
+                    print(f"Converted and moved: {img_src} -> {dest_image}")
+            except FileNotFoundError:
+                print(f"Image file not found: {img_src}")
+            except Exception as e:
+                print(f"Error processing file {img_src}: {str(e)}")
+            achievement_data = {
+                'title': title,
+                'url': url,
+                'image_src': dest_image.replace('\\', '/')
+            }
+            # Append the dictionary to the achievements list for the current section
+            achievements[section_title].append(achievement_data)
+
+    return achievements
 
 def generate_html(career_elements, badge_elements):
     career_content = "\n".join(f'<a href="{element['share_url']}" target="_blank" rel="noopener"> <img src={element['img_url']} alt="{element['title']}"/></a>' for element in career_elements)
@@ -153,7 +151,7 @@ def generate_markdown(career_elements, badge_elements):
 ---
 draft: false
 
-title: ''
+title: 'Security Studies'
 date: '{date.today()}'
 
 cover:
@@ -181,10 +179,10 @@ This page is generated from a custom script I wrote. The script scrapes my immer
 
     """
 
-    with open(f"output.md", "w") as file:
+    with open(f"index.md", "w") as file:
         file.write(f""" {PAGE_STYLE} \n <ul id="program_list"> \n       <li id="program_item"> """)
         for element in career_elements:
-            widget = f""" {{{{< badge url="{element.get('img_url')}" link="{element['share_url']}" alt="{element['title']}" height="240" >}}}} """
+            widget = f""" {{{{< badge url="{element.get('image_src')}" link="{element['url']}" alt="{element['title']}" height="240" >}}}} """
             file.write('\n')
             file.write(widget)
         
@@ -200,7 +198,7 @@ This page is generated from a custom script I wrote. The script scrapes my immer
                 file.write(f'\n <li id="program_item"> \n')
                 file.write(f'\n ### {key} \n')
                 for element in badge_elements[key]:
-                    widget = f""" {{{{< badge url="{element['img_url']}" link="{element['share_url']}" alt="{element['title']}" height="180" >}}}} """
+                    widget = f""" {{{{< badge url="{element['image_src']}" link="{element['url']}" alt="{element['title']}" height="155" >}}}} """
                     file.write('\n')
                     file.write(widget)
                 file.write(f' \n </li>')
@@ -213,10 +211,14 @@ def main():
     achievements_file = "Achievements - Immersive Labs.html"
     HTMLFile = open(achievements_file, "r") 
     contents = HTMLFile.read() 
-    all_the_soup = BeautifulSoup(contents, 'html.parser') 
-    bot = achievements_bot()
-    career_badges = bot.fetch_career_elements(all_the_soup)
-    small_badges = bot.fetch_badge_elements(all_the_soup)
+    all_the_soup = BeautifulSoup(contents, 'html.parser',  from_encoding='utf-8') 
+
+    # Define source and destination directories
+    dest_dir = './badge_images'
+
+    career_badges = fetch_career_elements(all_the_soup, dest_dir)
+
+    small_badges = fetch_badge_elements(all_the_soup, dest_dir)
 
     generate_markdown(career_badges , small_badges)
 
